@@ -68,6 +68,20 @@ function clamp(n, min, max) {
   return Math.max(min, Math.min(max, n));
 }
 
+// Backend base URL. main.py's CORS middleware already allows any origin
+// for local dev — change this if you deploy the API somewhere other than
+// localhost:8000.
+const API_URL = "http://localhost:8000";
+
+function dataUrlToBlob(dataUrl) {
+  const [header, base64] = dataUrl.split(",");
+  const mime = header.match(/data:(.*?);base64/)[1];
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new Blob([bytes], { type: mime });
+}
+
 function verdictFromScore(score) {
   if (score >= 80) return "GENUINE";
   if (score >= 50) return "SUSPICIOUS";
@@ -859,27 +873,49 @@ export default function App() {
 
   const readyToRun = Boolean(file && capturedPhoto) && !processing;
 
-  const runAnalysis = () => {
+  const runAnalysis = async () => {
     if (!readyToRun) return;
     setResults(null);
     setProcessing(true);
     setCurrentStep(0);
 
+    // Keep the existing step animation running for visual feedback while
+    // the real request is in flight — it no longer determines when
+    // results appear, just how the wait looks.
     let step = 0;
     const stepTimer = setInterval(() => {
       step += 1;
-      setCurrentStep(step);
-      if (step >= PROCESSING_STEPS.length) {
-        clearInterval(stepTimer);
-        setTimeout(() => {
-          const prevHash = auditLog[0]?.currHash || null;
-          const r = generateMockResults(docType, prevHash);
-          setResults(r);
-          setAuditLog((log) => [r.auditEntry, ...log]);
-          setProcessing(false);
-        }, 400);
-      }
+      setCurrentStep(Math.min(step, PROCESSING_STEPS.length));
     }, 550);
+
+    try {
+      if (file.isPdf) {
+        throw new Error("PDF documents aren't supported yet — upload a JPG/PNG for now.");
+      }
+
+      const formData = new FormData();
+      formData.append("document_image", dataUrlToBlob(file.dataUrl), file.name || "document.jpg");
+      formData.append("selfie_photo", dataUrlToBlob(capturedPhoto), "selfie.png");
+      formData.append("doc_type", docType);
+
+      const res = await fetch(`${API_URL}/verify`, { method: "POST", body: formData });
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}));
+        throw new Error(errBody.error || `Server returned ${res.status}`);
+      }
+      const r = await res.json();
+
+      clearInterval(stepTimer);
+      setCurrentStep(PROCESSING_STEPS.length);
+      setResults(r);
+      setAuditLog((log) => [r.auditEntry, ...log]);
+    } catch (err) {
+      clearInterval(stepTimer);
+      console.error("Verification request failed:", err);
+      alert(`Verification failed: ${err.message}`);
+    } finally {
+      setProcessing(false);
+    }
   };
 
   return (
