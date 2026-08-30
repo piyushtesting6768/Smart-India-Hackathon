@@ -184,7 +184,7 @@ def cross_check_with_face_recognition(document_image_path: ImageInput, selfie_im
         doc_img = _load_rgb(document_image_path)
         selfie_img = _load_rgb(selfie_image_path)
 
-        from schemas import face_recognition
+        import face_recognition
 
         doc_encodings = face_recognition.face_encodings(doc_img)
         selfie_encodings = face_recognition.face_encodings(selfie_img)
@@ -206,7 +206,7 @@ def cross_check_with_face_recognition(document_image_path: ImageInput, selfie_im
 def _load_rgb(image: ImageInput) -> np.ndarray:
     """Normalizes a path or a raw BGR frame into an RGB array for face_recognition."""
     if isinstance(image, str):
-        from schemas import face_recognition
+        import face_recognition
         return face_recognition.load_image_file(image)  # already RGB
     return image[:, :, ::-1]  # assume BGR (cv2 convention) -> RGB
 
